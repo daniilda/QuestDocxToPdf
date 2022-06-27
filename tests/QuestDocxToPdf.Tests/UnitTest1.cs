@@ -12,11 +12,6 @@ public class UnitTest1
     public void Test1()
     {
         using var doc = WordprocessingDocument.Open("test.docx", false);
-        var q = doc.MainDocumentPart.Document.Body.ChildElements;
-        foreach (var el in q)
-        {
-            
-        }
         var a = new DocXDocument(doc, new DocXGenerationOptions());
         var z = a.GeneratePdf();
         File.WriteAllBytes("../../../../../test.pdf", z);
