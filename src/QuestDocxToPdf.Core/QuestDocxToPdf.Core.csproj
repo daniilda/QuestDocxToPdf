@@ -7,8 +7,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="OpenXmlPowerTools-NetStandard" Version="4.4.21"/>
-    <PackageReference Include="QuestPDF" Version="2022.6.2"/>
+    <PackageReference Include="OpenXmlPowerTools-NetStandard" Version="4.4.21" />
+    <PackageReference Include="QuestPDF" Version="2022.6.2" />
   </ItemGroup>
 
 </Project>
