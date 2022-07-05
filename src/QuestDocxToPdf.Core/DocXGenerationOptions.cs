@@ -2,6 +2,10 @@ namespace QuestDocxToPdf.Core;
 
 public class DocXGenerationOptions
 {
-    public int FooterHeight = 10;
-    public int HeaderHeight = 10;
+    private DocXGenerationOptions? _instance;
+
+    public DocXGenerationOptions GetInstance()
+        => _instance ??= new DocXGenerationOptions();
+
+    public float DefaultCellHorizontalMargins { get; set; } = 2;
 }

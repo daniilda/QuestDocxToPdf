@@ -5,10 +5,12 @@ using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 using DocumentFormat.OpenXml.Wordprocessing;
 using OpenXmlPowerTools;
+using QuestDocxToPdf.Core.DescriptorResolvers;
 using QuestPDF.Drawing;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
+using BottomBorder = DocumentFormat.OpenXml.Drawing.BottomBorder;
 using Colors = QuestPDF.Helpers.Colors;
 using Drawing = DocumentFormat.OpenXml.Wordprocessing.Drawing;
 using GridColumn = DocumentFormat.OpenXml.Wordprocessing.GridColumn;
@@ -17,10 +19,13 @@ using Paragraph = DocumentFormat.OpenXml.Wordprocessing.Paragraph;
 using ParagraphProperties = DocumentFormat.OpenXml.Wordprocessing.ParagraphProperties;
 using Picture = DocumentFormat.OpenXml.Wordprocessing.Picture;
 using Run = DocumentFormat.OpenXml.Wordprocessing.Run;
+using RunProperties = DocumentFormat.OpenXml.Wordprocessing.RunProperties;
 using Table = DocumentFormat.OpenXml.Wordprocessing.Table;
 using TableCell = DocumentFormat.OpenXml.Wordprocessing.TableCell;
 using TableGrid = DocumentFormat.OpenXml.Wordprocessing.TableGrid;
+using TableProperties = DocumentFormat.OpenXml.Wordprocessing.TableProperties;
 using TableRow = DocumentFormat.OpenXml.Wordprocessing.TableRow;
+using TableStyle = DocumentFormat.OpenXml.Wordprocessing.TableStyle;
 using Text = DocumentFormat.OpenXml.Wordprocessing.Text;
 
 namespace QuestDocxToPdf.Core;
@@ -55,18 +60,19 @@ public class DocXDocument : IDocument
                 var fillcolor = Document.MainDocumentPart.Document.DocumentBackground?.Background?.Fillcolor;
                 var a = Document.MainDocumentPart.Document.Body.ChildElements.FirstOrDefault(
                     x => x.LocalName == "sectPr");
-                var b = (SectionProperties?)a;
+                var b = (SectionProperties?) a;
                 var xmlMargins = b?.ChildElements.FirstOrDefault(x => x.LocalName == "pgMar");
                 var xmlSize = b?.ChildElements.FirstOrDefault(x => x.LocalName == "pgSz");
-                var size = (PageSize?)xmlSize;
-                var aa = new QuestPDF.Helpers.PageSize(size!.Width!/DocxToQuestPDFScale, size!.Height!/DocxToQuestPDFScale);
+                var size = (PageSize?) xmlSize;
+                var aa = new QuestPDF.Helpers.PageSize(size!.Width! / DocxToQuestPDFScale,
+                    size!.Height! / DocxToQuestPDFScale);
                 var d = (PageMargin?) xmlMargins;
                 page.Background().Background(Colors.White);
                 page.Size(aa);
-                page.MarginLeft(d?.Left/DocxToQuestPDFScale);
-                page.MarginRight(d?.Right/DocxToQuestPDFScale);
-                page.MarginTop(d?.Top/DocxToQuestPDFScale);
-                page.MarginBottom(d?.Bottom/DocxToQuestPDFScale);
+                page.MarginLeft(d?.Left / DocxToQuestPDFScale);
+                page.MarginRight(d?.Right / DocxToQuestPDFScale);
+                // page.MarginTop(d?.Top/DocxToQuestPDFScale);
+                // page.MarginBottom(d?.Bottom/DocxToQuestPDFScale);
                 page.Header().Column(ComposeHeader);
                 page.Content().Column(ComposeBody);
                 page.Footer().Column(ComposeFooter);
@@ -77,11 +83,12 @@ public class DocXDocument : IDocument
 
     private void ComposeHeader(ColumnDescriptor descriptor)
     {
-        descriptor.Spacing(0);
+        descriptor.Item().Height(10);
         var xmlHeader = Document.MainDocumentPart.HeaderParts.FirstOrDefault()?.Header;
         if (xmlHeader is null)
             return;
         ResolveNode(descriptor, xmlHeader.ChildElements);
+        descriptor.Item().Height(10);
     }
 
     private void ComposeFooter(ColumnDescriptor descriptor)
@@ -100,25 +107,30 @@ public class DocXDocument : IDocument
         ResolveNode(descriptor, xmlBody.ChildElements);
     }
 
-    private void ResolveNode(ColumnDescriptor descriptor, OpenXmlElementList nodes)
+    private void ResolveNode(ColumnDescriptor descriptor, OpenXmlElementList nodes,
+        (float? bottom, float? top, float? right, float? left)? padding = null)
     {
         foreach (var node in nodes)
-            ResolveNode(descriptor, node);
+            ResolveNode(descriptor, node, padding);
     }
 
-    private void ResolveNode(ColumnDescriptor descriptor, OpenXmlElement node)
+    private void ResolveNode(ColumnDescriptor descriptor, OpenXmlElement node,
+        (float? bottom, float? top, float? right, float? left)? padding = null)
     {
         switch (node.LocalName)
         {
             case "tbl":
             {
-                var xmlTable = (Table)node;
+                var xmlTable = (Table) node;
+                var props = xmlTable.ChildElements.OfType<TableProperties>().FirstOrDefault();
+                var aaa = props?.TableCellMarginDefault;
                 var xmlTableGrid = node.ChildElements.OfType<TableGrid>().FirstOrDefault();
                 var columns = xmlTableGrid!.ChildElements.OfType<GridColumn>();
                 var enumerable = columns as GridColumn[] ?? columns.ToArray();
                 uint rowC = 1;
                 uint columnC = 1;
-                descriptor.Item().Table(
+
+                descriptor.Item().Container().EnsureSpace().Table(
                     table =>
                     {
                         table.ColumnsDefinition(x =>
@@ -129,20 +141,57 @@ public class DocXDocument : IDocument
                             }
                         });
                         var tableRows = xmlTable.ChildElements.OfType<TableRow>();
+                        uint aaa = 1;
+                        uint bbb = 1;
+                        var count = tableRows.First().OfType<TableCell>().Count();
+                        var ab = new int[tableRows.Count(), count];
                         foreach (var tableRow in tableRows)
                         {
+                            var tableRowProperties = tableRow.TableRowProperties;
+                            var height = tableRowProperties?.ChildElements.OfType<TableRowHeight>().FirstOrDefault();
                             var tableRowCells = tableRow.ChildElements.OfType<TableCell>();
+                            var runProperties = tableRow.Descendants<RunProperties>();
+                            var maxFontInTheRow = runProperties.MaxBy(x => float.Parse(x.FontSize.Val.Value))?.FontSize
+                                .Val.Value;
+
+
                             foreach (var tableCell in tableRowCells)
                             {
                                 var gripSpan = (uint) (tableCell.TableCellProperties?.GridSpan?.Val?.Value ?? 1);
                                 var columnSpanValue = tableCell.TableCellProperties?.VerticalMerge?.Val?.Value;
-                                table.Cell().Row(rowC).Column(columnC).ColumnSpan(gripSpan).Border(0.01f).Column(x =>
+                                if (columnSpanValue == MergedCellValues.Restart)
                                 {
-                                    ResolveNode(x, tableCell.ChildElements);
-                                });
+                                    // var i = ab.TryGetValue(new CellCoordinates());
+                                }
 
+                                aaa += gripSpan;
+                            }
+
+                            foreach (var tableCell in tableRowCells)
+                            {
+                                var gripSpan = (uint) (tableCell.TableCellProperties?.GridSpan?.Val?.Value ?? 1);
+                                var columnSpanValue = tableCell.TableCellProperties?.VerticalMerge?.Val?.Value;
+                                (float bottom, float top, float right, float left) a = (
+                                    float.Parse(tableCell.TableCellProperties?.TableCellMargin?.BottomMargin?.Width ??
+                                                "0"),
+                                    float.Parse(tableCell.TableCellProperties?.TableCellMargin?.TopMargin?.Width ??
+                                                "0"),
+                                    float.Parse(tableCell.TableCellProperties?.TableCellMargin?.RightMargin?.Width ??
+                                                "0"),
+                                    float.Parse(
+                                        tableCell.TableCellProperties?.TableCellMargin?.LeftMargin?.Width ?? "0"));
+                                table.Cell().Row(rowC).Column(columnC).ColumnSpan(gripSpan).Border(0.1f)
+                                    .MinHeight(height?.Val is null
+                                        ? (maxFontInTheRow is null
+                                            ? 0
+                                            : float.Parse(maxFontInTheRow) / DocxToQuestPDFScale)
+                                        : height.Val / DocxToQuestPDFScale).Column(x =>
+                                    {
+                                        ResolveNode(x, tableCell.ChildElements, a);
+                                    });
                                 columnC += gripSpan;
                             }
+
                             columnC = 1;
                             rowC++;
                         }
@@ -152,13 +201,17 @@ public class DocXDocument : IDocument
             }
             case "p":
             {
-                var xmlParagraph = (Paragraph)node;
-                descriptor.Item().Text(
-                    text
-                        =>
-                    {
-                        ResolveTextNode(text, xmlParagraph.ChildElements);
-                    });
+                var xmlParagraph = (Paragraph) node;
+                descriptor.Item()
+                    .PaddingLeft(padding?.left ?? 0)
+                    .PaddingBottom(padding?.bottom ?? 0)
+                    .PaddingTop(padding?.top ?? 0)
+                    .PaddingRight(padding?.bottom ?? 0).Text(
+                        text
+                            =>
+                        {
+                            ResolveTextNode(text, xmlParagraph.ChildElements);
+                        });
                 break;
             }
         }
@@ -170,7 +223,7 @@ public class DocXDocument : IDocument
         {
             case "pPr":
             {
-                var xmlParagraphProperties = (ParagraphProperties)node;
+                var xmlParagraphProperties = (ParagraphProperties) node;
                 var justification = xmlParagraphProperties.Justification?.Val?.Value;
                 switch (justification)
                 {
@@ -192,7 +245,7 @@ public class DocXDocument : IDocument
             }
             case "r":
             {
-                var xmlRun = (Run)node;
+                var xmlRun = (Run) node;
                 if (xmlRun.ChildElements.FirstOrDefault(x => x.LocalName == "t") is not null)
                 {
                     if (xmlRun.RunProperties?.Spacing?.Val is not null)
@@ -200,6 +253,7 @@ public class DocXDocument : IDocument
                         var val = xmlRun.RunProperties.Spacing.Val;
                         text.ParagraphSpacing(val);
                     }
+
                     var spanDescriptor =
                         text.Span(xmlRun.ChildElements.FirstOrDefault(x => x.LocalName == "t")!.InnerText)
                             .WrapAnywhere();
@@ -224,14 +278,15 @@ public class DocXDocument : IDocument
 
                 if (xmlRun.ChildElements.FirstOrDefault(x => x.LocalName == "drawing") is not null)
                 {
-                    var drawing = (Drawing)xmlRun.ChildElements.First(x => x.LocalName == "drawing");
-                    var picture = drawing.Inline.Graphic.GraphicData.Descendants<DocumentFormat.OpenXml.Drawing.Pictures.Picture>().FirstOrDefault();
+                    var drawing = (Drawing) xmlRun.ChildElements.First(x => x.LocalName == "drawing");
+                    var picture = drawing.Inline.Graphic.GraphicData
+                        .Descendants<DocumentFormat.OpenXml.Drawing.Pictures.Picture>().FirstOrDefault();
                     var blip = picture?.BlipFill.Blip?.Embed?.Value;
                     if (blip is null)
                         break;
-                    var img = (ImagePart)Document.MainDocumentPart.GetPartById(blip);
+                    var img = (ImagePart) Document.MainDocumentPart.GetPartById(blip);
                     using var imageStream = img.GetStream();
-                    text.Element().Image(imageStream);
+                    text.Element().AlignMiddle().Image(imageStream);
                 }
 
                 ResolveTextNode(text, xmlRun.ChildElements);

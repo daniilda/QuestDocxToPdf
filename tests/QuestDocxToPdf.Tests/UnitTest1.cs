@@ -13,7 +13,7 @@ public class UnitTest1
     [Fact]
     public void Test1()
     {
-        using var doc = WordprocessingDocument.Open("test.docx", false);
+        using var doc = WordprocessingDocument.Open("mismatch.docx", false);
         var a = new DocXDocument(doc, new DocXGenerationOptions());
         var stopwatch = Stopwatch.StartNew();
         var z = a.GeneratePdf();
